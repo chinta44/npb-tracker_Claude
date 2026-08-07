@@ -1,0 +1,1204 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NPB 2026 — 順位トラッカー</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+:root {
+  --bg: #0a0d12;
+  --bg2: #111520;
+  --bg3: #1a1f2e;
+  --bg4: #222840;
+  --border: rgba(255,255,255,0.07);
+  --border2: rgba(255,255,255,0.12);
+  --text: #f0f2f8;
+  --text2: #8b91a8;
+  --text3: #525870;
+  --accent: #4f8ef7;
+  --accent2: #6ea8ff;
+  --gold: #f5c842;
+  --green: #3ecf8e;
+  --red: #f55d5d;
+  --font-ja: 'Noto Sans JP', sans-serif;
+  --font-en: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --radius: 10px;
+  --radius-sm: 6px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ja);
+  min-height: 100vh;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* ── HEADER ── */
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(10, 13, 18, 0.85);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 20px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo-mark {
+  width: 28px;
+  height: 28px;
+  background: var(--accent);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-en);
+  font-weight: 700;
+  font-size: 11px;
+  color: #fff;
+  letter-spacing: 0.5px;
+}
+
+.logo-text {
+  font-family: var(--font-en);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text);
+  letter-spacing: 0.3px;
+}
+
+.logo-year {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text3);
+  margin-left: 2px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.league-toggle {
+  display: flex;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.league-btn {
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  color: var(--text2);
+  transition: all 0.15s;
+  font-family: var(--font-ja);
+}
+
+.league-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.refresh-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text2);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.15s;
+  font-family: var(--font-ja);
+}
+
+.refresh-btn:hover { border-color: var(--border2); color: var(--text); }
+.refresh-btn.loading svg { animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.update-time {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text3);
+}
+
+/* ── LAYOUT ── */
+.main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px 20px 60px;
+}
+
+/* ── TODAY GAMES BAR ── */
+.today-section {
+  margin-bottom: 28px;
+}
+
+.section-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--text3);
+  margin-bottom: 10px;
+}
+
+.games-scroll {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bg4) transparent;
+}
+
+.games-scroll::-webkit-scrollbar { height: 4px; }
+.games-scroll::-webkit-scrollbar-thumb { background: var(--bg4); border-radius: 2px; }
+
+.game-card {
+  flex-shrink: 0;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  min-width: 160px;
+  transition: border-color 0.15s;
+}
+
+.game-card:hover { border-color: var(--border2); }
+
+.game-matchup {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.game-team {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.game-team.winner { color: var(--green); }
+
+.game-score-area {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.game-score { color: var(--text); }
+.game-score.winner { color: var(--green); }
+.score-sep { color: var(--text3); font-size: 11px; }
+
+.game-status {
+  font-size: 10px;
+  color: var(--text3);
+  font-family: var(--font-mono);
+}
+
+.live-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: var(--red);
+  border-radius: 50%;
+  margin-right: 4px;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+/* ── NAV TABS ── */
+.nav-bar {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+}
+
+.nav-tab {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text2);
+  transition: all 0.15s;
+  margin-bottom: -1px;
+  font-family: var(--font-ja);
+}
+
+.nav-tab:hover { color: var(--text); }
+.nav-tab.active { color: var(--accent2); border-bottom-color: var(--accent); }
+
+/* ── CONTENT PANELS ── */
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* ── CHART ── */
+.chart-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.metric-tabs {
+  display: flex;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.metric-tab {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  color: var(--text2);
+  transition: all 0.15s;
+  font-family: var(--font-ja);
+}
+
+.metric-tab.active { background: var(--bg4); color: var(--text); }
+
+.chart-wrap {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.legend-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text2);
+  cursor: pointer;
+  transition: opacity 0.15s;
+  user-select: none;
+}
+
+.legend-item.dimmed { opacity: 0.3; }
+
+.legend-pip {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.canvas-wrap {
+  position: relative;
+  width: 100%;
+  height: 300px;
+}
+
+.events-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.event-chip {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 20px;
+  border: 1px solid;
+  letter-spacing: 0.3px;
+}
+
+/* ── STANDINGS TABLE ── */
+.standings-wrap {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.standings-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.standings-wrap thead th {
+  background: var(--bg3);
+  color: var(--text3);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+  padding: 10px 14px;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.standings-wrap thead th:first-child,
+.standings-wrap thead th:nth-child(2) { text-align: left; }
+
+.standings-wrap tbody td {
+  padding: 11px 14px;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.standings-wrap tbody td:first-child,
+.standings-wrap tbody td:nth-child(2) { text-align: left; }
+.standings-wrap tbody tr:last-child td { border-bottom: none; }
+.standings-wrap tbody tr:hover td { background: rgba(255,255,255,0.02); }
+
+.rank-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.rank-1 { background: rgba(245,200,66,0.15); color: var(--gold); }
+.rank-2 { background: rgba(200,210,230,0.12); color: #c8d2e6; }
+.rank-3 { background: rgba(200,140,90,0.15); color: #d4956a; }
+.rank-other { background: var(--bg4); color: var(--text3); }
+
+.team-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.team-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.team-label { font-weight: 500; font-size: 13px; }
+
+.wr-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wr-bar {
+  width: 44px;
+  height: 4px;
+  background: var(--bg4);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.wr-fill {
+  height: 100%;
+  border-radius: 2px;
+}
+
+.pos-val { color: var(--green); }
+.neg-val { color: var(--red); }
+
+.magic-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 20px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(79,142,247,0.15);
+  color: var(--accent2);
+  padding: 0 5px;
+}
+
+.cs-zone {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--green);
+  opacity: 0.6;
+}
+
+/* ── MATRIX ── */
+.matrix-legend {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+  font-size: 11px;
+  color: var(--text3);
+  font-family: var(--font-mono);
+}
+
+.ml-box {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.matrix-scroll { overflow-x: auto; margin-bottom: 12px; }
+
+.matrix-scroll table {
+  border-collapse: collapse;
+  min-width: 460px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.matrix-scroll th {
+  padding: 8px 10px;
+  background: var(--bg3);
+  color: var(--text3);
+  border: 1px solid var(--border);
+  font-weight: 500;
+  font-size: 11px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.matrix-scroll td {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  text-align: center;
+  min-width: 52px;
+}
+
+.m-self { background: var(--bg3); color: var(--text3); }
+.m-win { background: rgba(62,207,142,0.12); color: #3ecf8e; }
+.m-lose { background: rgba(245,93,93,0.10); color: #f55d5d; }
+.m-even { background: var(--bg2); color: var(--text3); }
+
+/* ── LOADING / ERROR ── */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  font-size: 12px;
+  color: var(--text2);
+  z-index: 999;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+
+.toast.show { display: flex; }
+.toast.error { border-color: rgba(245,93,93,0.3); color: var(--red); }
+
+/* ── GRID FOR STATS CARDS ── */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.stat-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+
+.stat-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text3);
+  margin-bottom: 6px;
+}
+
+.stat-value {
+  font-family: var(--font-en);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.1;
+}
+
+.stat-sub {
+  font-size: 11px;
+  color: var(--text3);
+  margin-top: 3px;
+}
+
+/* ── RESPONSIVE ── */
+@media (max-width: 640px) {
+  .site-header { padding: 0 14px; }
+  .main { padding: 16px 14px 48px; }
+  .update-time { display: none; }
+  .standings-wrap thead th:nth-child(n+8) { display: none; }
+  .standings-wrap tbody td:nth-child(n+8) { display: none; }
+}
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="logo">
+    <div class="logo-mark">NPB</div>
+    <span class="logo-text">順位トラッカー <span class="logo-year">2026</span></span>
+  </div>
+  <div class="header-right">
+    <div class="league-toggle">
+      <button class="league-btn active" onclick="switchLeague('c')">セ・リーグ</button>
+      <button class="league-btn" onclick="switchLeague('p')">パ・リーグ</button>
+    </div>
+    <button class="refresh-btn" id="refreshBtn" onclick="fetchAll()">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
+      </svg>
+      更新
+    </button>
+    <button class="refresh-btn" onclick="showApiKeyModal()" title="APIキー設定" style="padding:5px 9px">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left:-4px">
+        <path d="M12 2a5 5 0 0 1 5 5c0 1.9-.7 3.5-1.8 4.7L19 20H5l3.8-8.3A5 5 0 0 1 7 7a5 5 0 0 1 5-5z"/>
+      </svg>
+    </button>
+    <span class="update-time" id="updateTime">6/18 内蔵データ</span>
+  </div>
+</header>
+
+<main class="main">
+
+  <!-- today games -->
+  <div class="today-section">
+    <div class="section-eyebrow" id="todayEyebrow">今日の試合</div>
+    <div class="games-scroll" id="gamesScroll">
+      <div style="font-size:12px;color:var(--text3);padding:12px 0">読み込み中...</div>
+    </div>
+  </div>
+
+  <!-- summary stats -->
+  <div class="stats-grid" id="statsGrid"></div>
+
+  <!-- nav -->
+  <nav class="nav-bar">
+    <button class="nav-tab active" onclick="showPane('graph')">📈 順位推移</button>
+    <button class="nav-tab" onclick="showPane('standings')">📋 順位表</button>
+    <button class="nav-tab" onclick="showPane('matrix')">⚔️ 対戦成績</button>
+  </nav>
+
+  <!-- GRAPH -->
+  <div class="panel active" id="panel-graph">
+    <div class="chart-controls">
+      <div class="legend-row" id="legendRow"></div>
+      <div class="metric-tabs">
+        <button class="metric-tab active" onclick="switchMetric('wr')">勝率</button>
+        <button class="metric-tab" onclick="switchMetric('gb')">ゲーム差</button>
+        <button class="metric-tab" onclick="switchMetric('sv')">貯金</button>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <div class="canvas-wrap">
+        <canvas id="mainChart" role="img" aria-label="2026年プロ野球順位推移グラフ">各球団の勝率推移チャート</canvas>
+      </div>
+      <div class="events-row" id="eventsRow"></div>
+    </div>
+  </div>
+
+  <!-- STANDINGS -->
+  <div class="panel" id="panel-standings">
+    <div class="standings-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>球団</th>
+            <th>試合</th>
+            <th>勝</th>
+            <th>負</th>
+            <th>分</th>
+            <th>勝率</th>
+            <th>勝差</th>
+            <th>貯金</th>
+            <th>M</th>
+          </tr>
+        </thead>
+        <tbody id="standingsBody"></tbody>
+      </table>
+    </div>
+    <p style="font-size:11px;color:var(--text3);font-family:var(--font-mono)">M = 優勝マジック。消灯時は —</p>
+  </div>
+
+  <!-- MATRIX -->
+  <div class="panel" id="panel-matrix">
+    <div class="matrix-legend">
+      <span><span class="ml-box" style="background:rgba(62,207,142,0.2);border:1px solid rgba(62,207,142,0.4)"></span>勝ち越し</span>
+      <span><span class="ml-box" style="background:rgba(245,93,93,0.15);border:1px solid rgba(245,93,93,0.3)"></span>負け越し</span>
+      <span><span class="ml-box" style="background:var(--bg3);border:1px solid var(--border)"></span>五分</span>
+    </div>
+    <div class="matrix-scroll">
+      <table id="matrixTable"></table>
+    </div>
+    <p style="font-size:11px;color:var(--text3);font-family:var(--font-mono)">縦（行）チームが横（列）チームに対しての「勝－負」。交流戦含む。</p>
+  </div>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<!-- API Key Modal -->
+<div id="apiModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;align-items:center;justify-content:center;padding:20px">
+  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:14px;padding:28px 28px 24px;max-width:420px;width:100%">
+    <div style="font-family:var(--font-en);font-size:15px;font-weight:600;color:var(--text);margin-bottom:6px">Anthropic APIキーを設定</div>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:4px;line-height:1.7">
+      順位の自動更新にはAnthropicのAPIキーが必要です。<br>
+      <a href="https://console.anthropic.com/settings/keys" target="_blank" style="color:var(--accent2)">console.anthropic.com</a> で取得できます（無料枠あり）。<br>
+      キーはこのブラウザにのみ保存され、外部には送信されません。
+    </p>
+    <div style="margin:16px 0 6px">
+      <input id="apiKeyInput" type="password" placeholder="sk-ant-api03-..." autocomplete="off" spellcheck="false"
+        style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:9px 12px;color:var(--text);font-family:var(--font-mono);font-size:12px;outline:none"
+        onkeydown="if(event.key==='Enter')submitApiKey()">
+    </div>
+    <div id="apiKeyError" style="font-size:11px;color:var(--red);min-height:16px;margin-bottom:12px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button onclick="closeApiKeyModal()" style="padding:7px 16px;font-size:12px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text2);cursor:pointer;font-family:var(--font-ja)">キャンセル</button>
+      <button onclick="submitApiKey()" style="padding:7px 16px;font-size:12px;background:var(--accent);border:none;border-radius:8px;color:#fff;cursor:pointer;font-weight:500;font-family:var(--font-ja)">保存して更新</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const COLORS = {
+  '巨人':'#f04830','阪神':'#e6b800','ヤクルト':'#2db87a','DeNA':'#4488dd',
+  '広島':'#e83030','中日':'#2266cc','ソフトバンク':'#f09000','日本ハム':'#3080d0',
+  'オリックス':'#2255bb','楽天':'#cc2222','西武':'#1a4fa0','ロッテ':'#888899'
+};
+
+const LEAGUES = {
+  c:{
+    name:'セ・リーグ',
+    teams:['巨人','阪神','ヤクルト','DeNA','広島','中日'],
+    current:[
+      {team:'巨人',g:64,w:34,l:28,d:2,wr:0.548,gb:'-',sv:6,magic:null},
+      {team:'阪神',g:64,w:34,l:29,d:1,wr:0.540,gb:'0.5',sv:5,magic:null},
+      {team:'ヤクルト',g:64,w:34,l:29,d:1,wr:0.540,gb:'0',sv:5,magic:null},
+      {team:'DeNA',g:64,w:26,l:36,d:2,wr:0.419,gb:'7.5',sv:-10,magic:null},
+      {team:'広島',g:62,w:23,l:36,d:3,wr:0.390,gb:'1.5',sv:-13,magic:null},
+      {team:'中日',g:64,w:22,l:41,d:1,wr:0.349,gb:'3',sv:-19,magic:null},
+    ],
+    history:{
+      labels:['3/27\n開幕','4/10','4/24','5/8','5/22\n交流戦前','6/4','6/18'],
+      wr:{'巨人':[0.500,0.514,0.533,0.540,0.551,0.541,0.548],'阪神':[0.500,0.524,0.529,0.535,0.543,0.549,0.540],'ヤクルト':[0.500,0.510,0.520,0.545,0.538,0.543,0.540],'DeNA':[0.500,0.505,0.513,0.500,0.490,0.428,0.419],'広島':[0.500,0.490,0.471,0.455,0.420,0.396,0.390],'中日':[0.500,0.457,0.432,0.408,0.378,0.357,0.349]},
+      sv:{'巨人':[0,2,4,5,7,5,6],'阪神':[0,3,4,5,7,8,5],'ヤクルト':[0,1,3,6,5,6,5],'DeNA':[0,1,2,0,-2,-10,-10],'広島':[0,-1,-3,-5,-8,-11,-13],'中日':[0,-4,-7,-10,-13,-16,-19]}
+    },
+    matrix:{
+      teams:['巨人','阪神','ヤクルト','DeNA','広島','中日'],
+      data:{'巨人':{'阪神':[4,7],'ヤクルト':[4,7],'DeNA':[7,2],'広島':[4,3],'中日':[5,3]},'阪神':{'巨人':[7,4],'ヤクルト':[5,3],'DeNA':[3,5],'広島':[4,3],'中日':[9,2]},'ヤクルト':{'巨人':[7,4],'阪神':[3,5],'DeNA':[8,2],'広島':[6,2],'中日':[4,5]},'DeNA':{'巨人':[2,7],'阪神':[5,3],'ヤクルト':[2,8],'広島':[7,3],'中日':[5,2]},'広島':{'巨人':[3,4],'阪神':[3,4],'ヤクルト':[2,6],'DeNA':[3,7],'中日':[6,3]},'中日':{'巨人':[3,5],'阪神':[2,9],'ヤクルト':[5,4],'DeNA':[2,5],'広島':[3,6]}}
+    },
+    events:[
+      {idx:1,label:'4/5 巨人5連勝',color:'#f04830'},{idx:2,label:'4/18 阪神首位',color:'#e6b800'},
+      {idx:3,label:'5/1 ヤクルト首位浮上',color:'#2db87a'},{idx:4,label:'5/26 交流戦開始',color:'#4f8ef7'},
+      {idx:5,label:'6/4 巨人首位奪還',color:'#f04830'}
+    ]
+  },
+  p:{
+    name:'パ・リーグ',
+    teams:['西武','ソフトバンク','オリックス','日本ハム','ロッテ','楽天'],
+    current:[
+      {team:'西武',g:66,w:41,l:23,d:2,wr:0.641,gb:'-',sv:18,magic:51},
+      {team:'ソフトバンク',g:63,w:37,l:26,d:0,wr:0.587,gb:'3.5',sv:11,magic:null},
+      {team:'オリックス',g:64,w:35,l:28,d:1,wr:0.556,gb:'2',sv:7,magic:null},
+      {team:'日本ハム',g:67,w:37,l:30,d:0,wr:0.552,gb:'0',sv:7,magic:null},
+      {team:'ロッテ',g:64,w:31,l:31,d:2,wr:0.500,gb:'3.5',sv:0,magic:null},
+      {team:'楽天',g:64,w:23,l:40,d:1,wr:0.365,gb:'8.5',sv:-17,magic:null},
+    ],
+    history:{
+      labels:['3/27\n開幕','4/10','4/24','5/8','5/22\n交流戦前','6/4','6/18'],
+      wr:{'西武':[0.500,0.545,0.573,0.597,0.618,0.630,0.641],'ソフトバンク':[0.500,0.519,0.540,0.562,0.578,0.590,0.587],'オリックス':[0.500,0.510,0.528,0.535,0.548,0.552,0.556],'日本ハム':[0.500,0.509,0.516,0.530,0.540,0.548,0.552],'ロッテ':[0.500,0.500,0.498,0.495,0.502,0.504,0.500],'楽天':[0.500,0.476,0.455,0.420,0.392,0.370,0.365]},
+      sv:{'西武':[0,4,8,12,15,17,18],'ソフトバンク':[0,2,5,8,10,12,11],'オリックス':[0,1,3,5,7,8,7],'日本ハム':[0,1,2,4,6,7,7],'ロッテ':[0,0,-1,-1,0,0,0],'楽天':[0,-3,-6,-10,-13,-16,-17]}
+    },
+    matrix:{
+      teams:['西武','ソフトバンク','オリックス','日本ハム','ロッテ','楽天'],
+      data:{'西武':{'ソフトバンク':[6,4],'オリックス':[7,3],'日本ハム':[5,4],'ロッテ':[8,1],'楽天':[9,1]},'ソフトバンク':{'西武':[4,6],'オリックス':[5,4],'日本ハム':[7,3],'ロッテ':[6,3],'楽天':[8,2]},'オリックス':{'西武':[3,7],'ソフトバンク':[4,5],'日本ハム':[5,4],'ロッテ':[6,3],'楽天':[7,2]},'日本ハム':{'西武':[4,5],'ソフトバンク':[3,7],'オリックス':[4,5],'ロッテ':[5,4],'楽天':[8,2]},'ロッテ':{'西武':[1,8],'ソフトバンク':[3,6],'オリックス':[3,6],'日本ハム':[4,5],'楽天':[6,4]},'楽天':{'西武':[1,9],'ソフトバンク':[2,8],'オリックス':[2,7],'日本ハム':[2,8],'ロッテ':[4,6]}}
+    },
+    events:[
+      {idx:0,label:'3/28 西武3連勝スタート',color:'#1a4fa0'},{idx:2,label:'4/20 西武首位独走',color:'#1a4fa0'},
+      {idx:3,label:'5/2 楽天5連敗',color:'#cc2222'},{idx:4,label:'5/26 交流戦開始',color:'#4f8ef7'},
+      {idx:6,label:'6/18 西武独走継続',color:'#1a4fa0'}
+    ]
+  }
+};
+
+const TODAY_GAMES = [
+  {away:'巨人',home:'中日',as:null,hs:null,status:'18:00〜 東京ドーム'},
+  {away:'ヤクルト',home:'広島',as:null,hs:null,status:'18:00〜 神宮'},
+  {away:'DeNA',home:'阪神',as:null,hs:null,status:'18:15〜 横浜スタジアム'},
+  {away:'日本ハム',home:'ソフトバンク',as:null,hs:null,status:'18:00〜 エスコンF'},
+  {away:'ロッテ',home:'楽天',as:null,hs:null,status:'18:00〜 ZOZOマリン'},
+  {away:'オリックス',home:'西武',as:null,hs:null,status:'18:00〜 京セラドーム'},
+];
+
+let curLeague = 'c';
+let curMetric = 'wr';
+let curPane = 'graph';
+let dimmed = new Set();
+let chart = null;
+let isLoading = false;
+
+function toast(msg, isErr) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (isErr?' error':'');
+  clearTimeout(el._t);
+  el._t = setTimeout(()=>el.classList.remove('show'), 3000);
+}
+
+function switchLeague(l) {
+  curLeague = l;
+  dimmed.clear();
+  document.querySelectorAll('.league-btn').forEach((b,i)=>b.classList.toggle('active',(i===0&&l==='c')||(i===1&&l==='p')));
+  renderAll();
+}
+
+function switchMetric(m) {
+  curMetric = m;
+  document.querySelectorAll('.metric-tab').forEach((b,i)=>b.classList.toggle('active',['wr','gb','sv'][i]===m));
+  renderChart();
+}
+
+function showPane(p) {
+  curPane = p;
+  document.querySelectorAll('.panel').forEach(el=>el.classList.remove('active'));
+  document.getElementById('panel-'+p).classList.add('active');
+  document.querySelectorAll('.nav-tab').forEach((t,i)=>t.classList.toggle('active',['graph','standings','matrix'][i]===p));
+  if(p==='graph') renderChart();
+  if(p==='standings') renderStandings();
+  if(p==='matrix') renderMatrix();
+}
+
+function toggleTeam(t) {
+  if(dimmed.has(t)) dimmed.delete(t); else dimmed.add(t);
+  renderChart();
+}
+
+function computeGB(wrs, teams, idx) {
+  const maxWR = Math.max(...teams.map(t=>wrs[t][idx]));
+  const games = [0,8,17,26,35,44,53][idx]||1;
+  return teams.map(t=>-((maxWR - wrs[t][idx])*games));
+}
+
+function renderChart() {
+  const L = LEAGUES[curLeague];
+  const hist = L.history;
+  const labels = hist.labels;
+
+  const datasets = L.teams.map(team=>{
+    let data;
+    if(curMetric==='wr') data = hist.wr[team];
+    else if(curMetric==='sv') data = hist.sv[team];
+    else {
+      const gbArr = labels.map((_,i)=>computeGB(hist.wr, L.teams, i));
+      const ti = L.teams.indexOf(team);
+      data = gbArr.map(arr=>+arr[ti].toFixed(1));
+    }
+    const color = COLORS[team]||'#888';
+    const isDim = dimmed.has(team);
+    return {
+      label:team, data,
+      borderColor: isDim ? color+'30' : color,
+      backgroundColor: isDim ? color+'10' : color+'22',
+      pointBackgroundColor: isDim ? color+'30' : color,
+      borderWidth: isDim ? 1 : 2,
+      pointRadius: isDim ? 2 : 4,
+      pointHoverRadius: 6,
+      tension: 0.35,
+      fill: false
+    };
+  });
+
+  const metricLabel = {wr:'勝率',gb:'ゲーム差（1位比）',sv:'貯金'}[curMetric];
+
+  if(chart) chart.destroy();
+  const ctx = document.getElementById('mainChart').getContext('2d');
+  chart = new Chart(ctx, {
+    type:'line',
+    data:{ labels, datasets },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      plugins:{
+        legend:{ display:false },
+        tooltip:{
+          backgroundColor:'rgba(17,21,32,0.95)',
+          borderColor:'rgba(255,255,255,0.1)',
+          borderWidth:1,
+          titleColor:'#8b91a8',
+          bodyColor:'#f0f2f8',
+          padding:12,
+          callbacks:{
+            label:ctx=>{
+              const v=ctx.parsed.y;
+              if(curMetric==='wr') return ` ${ctx.dataset.label}  ${v.toFixed(3)}`;
+              if(curMetric==='sv') return ` ${ctx.dataset.label}  ${v>=0?'+':''}${v}`;
+              return ` ${ctx.dataset.label}  ${v>=0?'+':''}${v.toFixed(1)}`;
+            }
+          }
+        }
+      },
+      scales:{
+        x:{
+          ticks:{ font:{size:10}, color:'#525870', maxRotation:0 },
+          grid:{ color:'rgba(255,255,255,0.04)' }
+        },
+        y:{
+          title:{ display:true, text:metricLabel, color:'#525870', font:{size:10} },
+          ticks:{ font:{size:10}, color:'#525870', callback:v=>curMetric==='wr'?v.toFixed(3):v },
+          grid:{ color:'rgba(255,255,255,0.04)' },
+          reverse: curMetric==='gb'
+        }
+      }
+    }
+  });
+
+  // legend
+  const lr = document.getElementById('legendRow');
+  lr.innerHTML = L.teams.map(team=>`
+    <div class="legend-item ${dimmed.has(team)?'dimmed':''}" onclick="toggleTeam('${team}')">
+      <span class="legend-pip" style="background:${COLORS[team]||'#888'}"></span>
+      <span>${team}</span>
+    </div>
+  `).join('');
+
+  // events
+  const er = document.getElementById('eventsRow');
+  er.innerHTML = L.events.map(ev=>`
+    <span class="event-chip" style="color:${ev.color};border-color:${ev.color}44;background:${ev.color}11">${ev.label}</span>
+  `).join('');
+}
+
+function renderStandings() {
+  const L = LEAGUES[curLeague];
+  const tbody = document.getElementById('standingsBody');
+  tbody.innerHTML = L.current.map((t,i)=>{
+    const rank = i+1;
+    const rc = rank<=3 ? 'rank-'+rank : 'rank-other';
+    const sv = t.sv;
+    const svStr = sv>0?`<span class="pos-val">+${sv}</span>`:sv<0?`<span class="neg-val">${sv}</span>`:`<span style="color:var(--text3)">0</span>`;
+    const mg = t.magic!=null ? `<span class="magic-pill">${t.magic}</span>` : `<span style="color:var(--text3)">—</span>`;
+    const bw = Math.max(4, t.wr*100);
+    const bc = COLORS[t.team]||'#888';
+    const csNote = rank<=3 ? `<span class="cs-zone"> CS圏</span>` : '';
+    return `<tr>
+      <td><span class="rank-num ${rc}">${rank}</span></td>
+      <td><div class="team-cell"><span class="team-dot" style="background:${bc}"></span><span class="team-label">${t.team}</span>${csNote}</div></td>
+      <td style="color:var(--text2)">${t.g}</td>
+      <td>${t.w}</td>
+      <td style="color:var(--text2)">${t.l}</td>
+      <td style="color:var(--text3)">${t.d}</td>
+      <td><div class="wr-bar-wrap"><div class="wr-bar"><div class="wr-fill" style="width:${bw}%;background:${bc}"></div></div><span>${t.wr.toFixed(3)}</span></div></td>
+      <td style="color:var(--text2)">${t.gb}</td>
+      <td>${svStr}</td>
+      <td>${mg}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderMatrix() {
+  const L = LEAGUES[curLeague];
+  const mat = L.matrix;
+  const teams = mat.teams;
+  const data = mat.data;
+  let html = '<tr><th></th>'+teams.map(t=>`<th style="color:${COLORS[t]||'#888'}">${t}</th>`).join('')+'</tr>';
+  teams.forEach(rowT=>{
+    html += `<tr><th style="color:${COLORS[rowT]||'#888'};text-align:left;padding-left:10px">${rowT}</th>`;
+    teams.forEach(colT=>{
+      if(rowT===colT){ html+='<td class="m-self">—</td>'; return; }
+      const v = data[rowT]?.[colT];
+      if(!v){ html+='<td class="m-even">-</td>'; return; }
+      const [w,l]=v;
+      const cls = w>l?'m-win':w<l?'m-lose':'m-even';
+      html+=`<td class="${cls}">${w}–${l}</td>`;
+    });
+    html+='</tr>';
+  });
+  document.getElementById('matrixTable').innerHTML = html;
+}
+
+function renderStats() {
+  const L = LEAGUES[curLeague];
+  const leader = L.current[0];
+  const lastPlace = L.current[L.current.length-1];
+  const totalGames = L.current.reduce((a,t)=>a+t.g,0)/L.current.length;
+  const magic = L.current.find(t=>t.magic!=null);
+  document.getElementById('statsGrid').innerHTML = `
+    <div class="stat-card">
+      <div class="stat-label">首位</div>
+      <div class="stat-value" style="color:${COLORS[leader.team]}">${leader.team}</div>
+      <div class="stat-sub">勝率 ${leader.wr.toFixed(3)} 貯金${leader.sv>=0?'+':''}${leader.sv}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">首位〜2位ゲーム差</div>
+      <div class="stat-value">${L.current[1].gb}</div>
+      <div class="stat-sub">${L.current[1].team} との差</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">最下位</div>
+      <div class="stat-value" style="color:${COLORS[lastPlace.team]}">${lastPlace.team}</div>
+      <div class="stat-sub">勝率 ${lastPlace.wr.toFixed(3)} 貯金${lastPlace.sv}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">優勝マジック</div>
+      <div class="stat-value" style="color:var(--accent2)">${magic ? magic.magic : '—'}</div>
+      <div class="stat-sub">${magic ? magic.team+'が点灯中' : 'まだ点灯なし'}</div>
+    </div>
+  `;
+}
+
+function renderTodayGames() {
+  const leagueTeams = new Set(LEAGUES[curLeague].teams);
+  const games = TODAY_GAMES.filter(g=>leagueTeams.has(g.away)||leagueTeams.has(g.home));
+  const el = document.getElementById('gamesScroll');
+  if(!games.length){ el.innerHTML='<span style="font-size:12px;color:var(--text3)">該当試合なし</span>'; return; }
+  el.innerHTML = games.map(g=>{
+    const ac = COLORS[g.away]||'#888';
+    const hc = COLORS[g.home]||'#888';
+    const hasScore = g.as!=null && g.hs!=null;
+    const awayWin = hasScore && g.as>g.hs;
+    const homeWin = hasScore && g.hs>g.as;
+    const isLive = g.status && g.status.includes('回');
+    return `<div class="game-card">
+      <div class="game-matchup">
+        <span class="game-team ${awayWin?'winner':''}" style="color:${ac}">${g.away}</span>
+        ${hasScore
+          ? `<div class="game-score-area"><span class="game-score ${awayWin?'winner':''}">${g.as}</span><span class="score-sep">–</span><span class="game-score ${homeWin?'winner':''}">${g.hs}</span></div>`
+          : `<span style="font-size:11px;color:var(--text3)">vs</span>`}
+        <span class="game-team ${homeWin?'winner':''}" style="color:${hc}">${g.home}</span>
+      </div>
+      <div class="game-status">${isLive?'<span class="live-dot"></span>':''}${g.status}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderAll() {
+  renderStats();
+  renderTodayGames();
+  if(curPane==='graph') renderChart();
+  if(curPane==='standings') renderStandings();
+  if(curPane==='matrix') renderMatrix();
+}
+
+function getApiKey() {
+  return localStorage.getItem('npb_apikey') || '';
+}
+
+function saveApiKey(key) {
+  localStorage.setItem('npb_apikey', key.trim());
+}
+
+function showApiKeyModal() {
+  document.getElementById('apiModal').style.display = 'flex';
+  document.getElementById('apiKeyInput').value = getApiKey();
+  document.getElementById('apiKeyInput').focus();
+}
+
+function closeApiKeyModal() {
+  document.getElementById('apiModal').style.display = 'none';
+}
+
+function submitApiKey() {
+  const val = document.getElementById('apiKeyInput').value.trim();
+  if(!val.startsWith('sk-ant-')) {
+    document.getElementById('apiKeyError').textContent = '「sk-ant-」で始まるキーを入力してください';
+    return;
+  }
+  document.getElementById('apiKeyError').textContent = '';
+  saveApiKey(val);
+  closeApiKeyModal();
+  fetchAll();
+}
+
+async function fetchAll() {
+  const apiKey = getApiKey();
+  if(!apiKey) {
+    showApiKeyModal();
+    return;
+  }
+
+  if(isLoading) return;
+  isLoading = true;
+  const btn = document.getElementById('refreshBtn');
+  btn.classList.add('loading');
+  btn.disabled = true;
+  toast('データを更新中...');
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model:'claude-sonnet-4-6',
+        max_tokens:1000,
+        messages:[{ role:'user', content:`今日は${todayFull()}です。2026年NPBプロ野球の最新順位データをJSONのみで返してください。説明は一切不要です。
+
+{
+  "updated":"YYYY/MM/DD",
+  "central":[{"team":"巨人","g":64,"w":34,"l":28,"d":2,"wr":0.548,"gb":"-","sv":6,"magic":null},...全6チーム順位順...],
+  "pacific":[{"team":"西武","g":66,"w":41,"l":23,"d":2,"wr":0.641,"gb":"-","sv":18,"magic":51},...全6チーム順位順...],
+  "today":[{"away":"巨人","home":"中日","as":null,"hs":null,"status":"18:00〜 東京ドーム"},...本日の全試合（スコアがあれば数値、未試合はnull）...]
+}
+
+magicは優勝マジック数値またはnull。${todayFull()}終了時点の実際の最新データで返してください。`
+        }]
+      })
+    });
+
+    if(res.status === 401) {
+      saveApiKey('');
+      showApiKeyModal();
+      document.getElementById('apiKeyError').textContent = 'APIキーが無効です。再度入力してください';
+      throw new Error('401');
+    }
+
+    const dat = await res.json();
+    const txt = dat.content?.find(c=>c.type==='text')?.text || '';
+    const clean = txt.replace(/```json|```/g,'').trim();
+    const s = clean.indexOf('{'), e = clean.lastIndexOf('}');
+    if(s>=0 && e>s) {
+      const parsed = JSON.parse(clean.substring(s, e+1));
+      if(parsed.central) {
+        LEAGUES.c.current = parsed.central.map(t=>({...t,sv:t.sv??0}));
+        updateHistoryFromCurrent('c');
+      }
+      if(parsed.pacific) {
+        LEAGUES.p.current = parsed.pacific.map(t=>({...t,sv:t.sv??0}));
+        updateHistoryFromCurrent('p');
+      }
+      if(parsed.today && Array.isArray(parsed.today)) {
+        parsed.today.forEach((g,i)=>{ if(TODAY_GAMES[i]) Object.assign(TODAY_GAMES[i],g); });
+      }
+      const upd = parsed.updated || todayLabel();
+      document.getElementById('updateTime').textContent = upd + ' AI取得';
+      toast('更新しました ✓');
+    }
+  } catch(e) {
+    if(e.message !== '401') toast('更新に失敗しました', true);
+  } finally {
+    isLoading = false;
+    btn.classList.remove('loading');
+    btn.disabled = false;
+    renderAll();
+  }
+}
+
+// ── 今日の日付を動的にセット ──
+function todayLabel() {
+  const d = new Date();
+  return `${d.getMonth()+1}/${d.getDate()}`;
+}
+
+function todayFull() {
+  const d = new Date();
+  const days = ['日','月','火','水','木','金','土'];
+  return `${d.getMonth()+1}月${d.getDate()}日（${days[d.getDay()]}）`;
+}
+
+function initDates() {
+  // 眉毛テキスト
+  document.getElementById('todayEyebrow').textContent = `今日の試合 — ${todayFull()}`;
+  // グラフ履歴の最終ラベルを今日の日付に
+  const lbl = todayLabel() + '\n現在';
+  LEAGUES.c.history.labels[LEAGUES.c.history.labels.length-1] = lbl;
+  LEAGUES.p.history.labels[LEAGUES.p.history.labels.length-1] = lbl;
+}
+
+// ── 履歴末尾を最新データで更新 ──
+function updateHistoryFromCurrent(leagueKey) {
+  const L = LEAGUES[leagueKey];
+  L.current.forEach(t => {
+    const hist_wr = L.history.wr[t.team];
+    const hist_sv = L.history.sv[t.team];
+    if(hist_wr) hist_wr[hist_wr.length-1] = t.wr;
+    if(hist_sv) hist_sv[hist_sv.length-1] = t.sv;
+  });
+}
+
+initDates();
+renderAll();
+
+// 試合時間帯に自動更新
+setInterval(()=>{
+  const h = new Date().getHours();
+  if(h>=18 && h<=23) fetchAll();
+}, 30*60*1000);
+</script>
+</body>
+</html>
