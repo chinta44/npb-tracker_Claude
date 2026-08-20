@@ -626,7 +626,7 @@ body {
         <path d="M12 2a5 5 0 0 1 5 5c0 1.9-.7 3.5-1.8 4.7L19 20H5l3.8-8.3A5 5 0 0 1 7 7a5 5 0 0 1 5-5z"/>
       </svg>
     </button>
-    <span class="update-time" id="updateTime">8/6 内蔵データ</span>
+    <span class="update-time" id="updateTime">8/19 内蔵データ</span>
   </div>
 </header>
 
@@ -738,88 +738,96 @@ const COLORS = {
   'オリックス':'#2255bb','楽天':'#cc2222','西武':'#1a4fa0','ロッテ':'#888899'
 };
 
-const LEAGUES = {
-  c:{
-    name:'セ・リーグ',
-    teams:['阪神','巨人','ヤクルト','DeNA','中日','広島'],
-    current:[
-      {team:'阪神',g:97,w:54,l:42,d:1,wr:0.562,gb:'-',sv:12,magic:null},
-      {team:'巨人',g:98,w:53,l:43,d:2,wr:0.552,gb:'1',sv:10,magic:null},
-      {team:'ヤクルト',g:98,w:44,l:53,d:1,wr:0.454,gb:'9.5',sv:-9,magic:null},
-      {team:'DeNA',g:98,w:43,l:52,d:3,wr:0.453,gb:'0',sv:-9,magic:null},
-      {team:'中日',g:100,w:42,l:57,d:1,wr:0.424,gb:'3',sv:-15,magic:null},
-      {team:'広島',g:95,w:38,l:53,d:4,wr:0.418,gb:'0',sv:-15,magic:null},
-    ],
-    history:{
-      // 開幕〜8/6 実データ（約2週間おき）
-      labels:['3/27\n開幕','4/10','4/24','5/8','5/22\n交流戦前','6/18\n交流戦後','7/10','7/24','8/6'],
-      wr:{
-        '阪神': [0.500,0.524,0.529,0.535,0.543,0.540,0.548,0.555,0.562],
-        '巨人': [0.500,0.514,0.533,0.540,0.551,0.548,0.551,0.552,0.552],
-        'ヤクルト':[0.500,0.510,0.520,0.545,0.538,0.540,0.510,0.468,0.454],
-        'DeNA':  [0.500,0.505,0.513,0.500,0.490,0.419,0.435,0.448,0.453],
-        '中日':  [0.500,0.457,0.432,0.408,0.378,0.349,0.370,0.400,0.424],
-        '広島':  [0.500,0.490,0.471,0.455,0.420,0.390,0.405,0.415,0.418],
-      },
-      sv:{
-        '阪神': [0,3,4,5,7,5,7,10,12],
-        '巨人': [0,2,4,5,7,6,7,9,10],
-        'ヤクルト':[0,1,3,6,5,5,1,-5,-9],
-        'DeNA':  [0,1,2,0,-2,-10,-8,-7,-9],
-        '中日':  [0,-4,-7,-10,-13,-19,-14,-10,-15],
-        '広島':  [0,-1,-3,-5,-8,-13,-11,-12,-15],
-      }
-    },
-    matrix:{
-      teams:['阪神','巨人','ヤクルト','DeNA','中日','広島'],
+// ── イベントは固定（スクレイピングでは取れないため） ──
+const EVENTS = {
+  c:[
+    {idx:1,label:'4/5 巨人5連勝',color:'#f04830'},
+    {idx:2,label:'4/18 阪神首位',color:'#e6b800'},
+    {idx:4,label:'5/26 交流戦開始',color:'#4f8ef7'},
+    {idx:5,label:'6/18 交流戦終了・阪神首位',color:'#e6b800'},
+    {idx:7,label:'7/24 阪神首位固める',color:'#e6b800'},
+  ],
+  p:[
+    {idx:1,label:'4/10 ソフトバンク首位浮上',color:'#f09000'},
+    {idx:2,label:'4/20 西武猛追',color:'#1a4fa0'},
+    {idx:4,label:'5/26 交流戦開始',color:'#4f8ef7'},
+    {idx:5,label:'6/18 ソフトバンク首位奪還',color:'#f09000'},
+  ]
+};
+
+// ── JSONから読み込んだデータを格納する器 ──
+let LEAGUES = { c: null, p: null };
+let TODAY_GAMES = [];
+
+let curLeague = 'c';
+let curMetric = 'wr';
+let curPane = 'graph';
+let dimmed = new Set();
+let chart = null;
+let isLoading = false;
+
+// ── data/standings.json を読み込む ──
+async function loadStandingsJson() {
+  try {
+    const res = await fetch('./data/standings.json?_=' + Date.now());
+    if (!res.ok) throw new Error('fetch failed');
+    const data = await res.json();
+    applyJsonData(data);
+    return true;
+  } catch(e) {
+    console.warn('standings.json読み込み失敗:', e);
+    return false;
+  }
+}
+
+function applyJsonData(data) {
+  if (data.central) {
+    LEAGUES.c = {
+      name: 'セ・リーグ',
+      teams: data.central.teams,
+      current: data.central.current.map(t=>({...t, sv: t.sv??0})),
+      history: data.central.history,
+      events: EVENTS.c,
+      // matrixはJSONに含まれない場合は空
+      matrix: data.central.matrix || { teams: data.central.teams, data: {} },
+    };
+  }
+  if (data.pacific) {
+    LEAGUES.p = {
+      name: 'パ・リーグ',
+      teams: data.pacific.teams,
+      current: data.pacific.current.map(t=>({...t, sv: t.sv??0})),
+      history: data.pacific.history,
+      events: EVENTS.p,
+      matrix: data.pacific.matrix || { teams: data.pacific.teams, data: {} },
+    };
+  }
+  if (data.updated) {
+    document.getElementById('updateTime').textContent = data.updated + ' 自動更新';
+  }
+  // 今日の試合 (JSONにあれば)
+  if (data.today && Array.isArray(data.today)) {
+    TODAY_GAMES = data.today;
+  }
+}
+
+// ── 対戦成績マトリクス（既存の固定値でフォールバック） ──
+function applyMatrixFallback() {
+  if (LEAGUES.c && (!LEAGUES.c.matrix || !Object.keys(LEAGUES.c.matrix.data).length)) {
+    LEAGUES.c.matrix = {
+      teams:['阪神','巨人','DeNA','ヤクルト','広島','中日'],
       data:{
-        '阪神':{'巨人':[10,7],'ヤクルト':[10,5],'DeNA':[8,8],'中日':[12,4],'広島':[8,6]},
-        '巨人':{'阪神':[7,10],'ヤクルト':[7,9],'DeNA':[11,5],'中日':[9,8],'広島':[9,5]},
-        'ヤクルト':{'阪神':[5,10],'巨人':[9,7],'DeNA':[8,8],'中日':[6,10],'広島':[10,7]},
-        'DeNA':{'阪神':[8,8],'巨人':[5,11],'ヤクルト':[8,8],'中日':[9,7],'広島':[8,5]},
-        '中日':{'阪神':[4,12],'巨人':[8,9],'ヤクルト':[10,6],'DeNA':[7,9],'広島':[6,10]},
-        '広島':{'阪神':[6,8],'巨人':[5,9],'ヤクルト':[7,10],'DeNA':[5,8],'中日':[10,6]},
+        '阪神':{'巨人':[10,7],'DeNA':[8,8],'ヤクルト':[10,5],'広島':[8,6],'中日':[12,4]},
+        '巨人':{'阪神':[7,10],'DeNA':[11,5],'ヤクルト':[7,9],'広島':[9,5],'中日':[9,8]},
+        'DeNA':{'阪神':[8,8],'巨人':[5,11],'ヤクルト':[8,8],'広島':[8,5],'中日':[9,7]},
+        'ヤクルト':{'阪神':[5,10],'巨人':[9,7],'DeNA':[8,8],'広島':[10,7],'中日':[6,10]},
+        '広島':{'阪神':[6,8],'巨人':[5,9],'DeNA':[5,8],'ヤクルト':[7,10],'中日':[10,6]},
+        '中日':{'阪神':[4,12],'巨人':[8,9],'DeNA':[7,9],'ヤクルト':[10,6],'広島':[6,10]},
       }
-    },
-    events:[
-      {idx:1,label:'4/5 巨人5連勝',color:'#f04830'},
-      {idx:2,label:'4/18 阪神首位',color:'#e6b800'},
-      {idx:4,label:'5/26 交流戦開始',color:'#4f8ef7'},
-      {idx:5,label:'6/18 交流戦終了・阪神首位',color:'#e6b800'},
-      {idx:7,label:'7/24 阪神首位固める',color:'#e6b800'},
-    ]
-  },
-  p:{
-    name:'パ・リーグ',
-    teams:['ソフトバンク','西武','日本ハム','オリックス','ロッテ','楽天'],
-    current:[
-      {team:'ソフトバンク',g:98,w:62,l:35,d:1,wr:0.639,gb:'-',sv:27,magic:null},
-      {team:'西武',g:101,w:55,l:43,d:3,wr:0.561,gb:'8',sv:12,magic:null},
-      {team:'日本ハム',g:101,w:56,l:45,d:0,wr:0.554,gb:'0.5',sv:11,magic:null},
-      {team:'オリックス',g:99,w:49,l:48,d:2,wr:0.505,gb:'6',sv:1,magic:null},
-      {team:'ロッテ',g:95,w:44,l:48,d:3,wr:0.478,gb:'2.5',sv:-4,magic:null},
-      {team:'楽天',g:95,w:36,l:58,d:1,wr:0.383,gb:'9',sv:-22,magic:null},
-    ],
-    history:{
-      labels:['3/27\n開幕','4/10','4/24','5/8','5/22\n交流戦前','6/18\n交流戦後','7/10','7/24','8/6'],
-      wr:{
-        'ソフトバンク':[0.500,0.560,0.580,0.600,0.610,0.605,0.620,0.632,0.639],
-        '西武':        [0.500,0.545,0.573,0.597,0.618,0.641,0.620,0.575,0.561],
-        '日本ハム':    [0.500,0.509,0.516,0.530,0.540,0.552,0.558,0.554,0.554],
-        'オリックス':  [0.500,0.510,0.528,0.535,0.548,0.556,0.530,0.510,0.505],
-        'ロッテ':      [0.500,0.500,0.498,0.495,0.502,0.500,0.492,0.482,0.478],
-        '楽天':        [0.500,0.476,0.455,0.420,0.392,0.365,0.375,0.382,0.383],
-      },
-      sv:{
-        'ソフトバンク':[0,5,9,14,17,17,20,24,27],
-        '西武':        [0,4,8,12,15,18,16,12,12],
-        '日本ハム':    [0,1,2,4,6,7,9,10,11],
-        'オリックス':  [0,1,3,5,7,7,4,2,1],
-        'ロッテ':      [0,0,-1,-1,0,0,-2,-3,-4],
-        '楽天':        [0,-3,-6,-10,-13,-17,-16,-18,-22],
-      }
-    },
-    matrix:{
+    };
+  }
+  if (LEAGUES.p && (!LEAGUES.p.matrix || !Object.keys(LEAGUES.p.matrix.data).length)) {
+    LEAGUES.p.matrix = {
       teams:['ソフトバンク','西武','日本ハム','オリックス','ロッテ','楽天'],
       data:{
         'ソフトバンク':{'西武':[8,9],'日本ハム':[14,2],'オリックス':[7,8],'ロッテ':[9,4],'楽天':[10,7]},
@@ -829,32 +837,18 @@ const LEAGUES = {
         'ロッテ':{'ソフトバンク':[4,9],'西武':[8,8],'日本ハム':[6,10],'オリックス':[6,11],'楽天':[10,4]},
         '楽天':{'ソフトバンク':[7,10],'西武':[7,8],'日本ハム':[6,10],'オリックス':[8,6],'ロッテ':[4,10]},
       }
-    },
-    events:[
-      {idx:1,label:'4/10 ソフトバンク首位浮上',color:'#f09000'},
-      {idx:2,label:'4/20 西武猛追',color:'#1a4fa0'},
-      {idx:4,label:'5/26 交流戦開始',color:'#4f8ef7'},
-      {idx:5,label:'6/18 西武が一時首位',color:'#1a4fa0'},
-      {idx:6,label:'7/上 ソフトバンク首位奪還',color:'#f09000'},
-    ]
+    };
   }
-};
+}
 
-const TODAY_GAMES = [
-  {away:'巨人',home:'ヤクルト',as:null,hs:null,status:'18:00〜 東京ドーム'},
-  {away:'DeNA',home:'広島',as:null,hs:null,status:'18:00〜 横浜スタジアム'},
-  {away:'阪神',home:'中日',as:null,hs:null,status:'18:00〜 京セラドーム'},
-  {away:'日本ハム',home:'楽天',as:null,hs:null,status:'18:00〜 エスコンF'},
-  {away:'西武',home:'ソフトバンク',as:null,hs:null,status:'18:00〜 ベルーナドーム'},
-  {away:'ロッテ',home:'オリックス',as:null,hs:null,status:'18:00〜 ZOZOマリン'},
-];
-
-let curLeague = 'c';
-let curMetric = 'wr';
-let curPane = 'graph';
-let dimmed = new Set();
-let chart = null;
-let isLoading = false;
+// 今日の試合デフォルト（JSONになければ空表示）
+function ensureTodayGames() {
+  if (!TODAY_GAMES.length) {
+    TODAY_GAMES = [
+      {away:'—',home:'—',as:null,hs:null,status:'試合情報を取得中...'},
+    ];
+  }
+}
 
 function toast(msg, isErr) {
   const el = document.getElementById('toast');
@@ -1219,33 +1213,51 @@ function todayFull() {
 }
 
 function initDates() {
-  // 眉毛テキスト
   document.getElementById('todayEyebrow').textContent = `今日の試合 — ${todayFull()}`;
   // グラフ履歴の最終ラベルを今日の日付に
   const lbl = todayLabel() + '\n現在';
-  LEAGUES.c.history.labels[LEAGUES.c.history.labels.length-1] = lbl;
-  LEAGUES.p.history.labels[LEAGUES.p.history.labels.length-1] = lbl;
-}
-
-// ── 履歴末尾を最新データで更新 ──
-function updateHistoryFromCurrent(leagueKey) {
-  const L = LEAGUES[leagueKey];
-  L.current.forEach(t => {
-    const hist_wr = L.history.wr[t.team];
-    const hist_sv = L.history.sv[t.team];
-    if(hist_wr) hist_wr[hist_wr.length-1] = t.wr;
-    if(hist_sv) hist_sv[hist_sv.length-1] = t.sv;
+  ['c','p'].forEach(k => {
+    if(LEAGUES[k]?.history?.labels?.length) {
+      LEAGUES[k].history.labels[LEAGUES[k].history.labels.length-1] = lbl;
+    }
   });
 }
 
-initDates();
-renderAll();
+// ── 履歴末尾を最新データで更新（AI更新時用） ──
+function updateHistoryFromCurrent(leagueKey) {
+  const L = LEAGUES[leagueKey];
+  if (!L) return;
+  L.current.forEach(t => {
+    const hw = L.history.wr[t.team];
+    const hs = L.history.sv[t.team];
+    if(hw) hw[hw.length-1] = t.wr;
+    if(hs) hs[hs.length-1] = t.sv;
+  });
+}
 
-// 試合時間帯に自動更新
-setInterval(()=>{
+// ── 起動: JSONを読んでから描画 ──
+(async () => {
+  document.getElementById('updateTime').textContent = '読み込み中...';
+  const ok = await loadStandingsJson();
+  if (!ok) {
+    // JSONが読めなかった場合のフォールバックデータ
+    toast('データ読み込みに失敗。キャッシュデータを使用します', true);
+  }
+  applyMatrixFallback();
+  ensureTodayGames();
+  initDates();
+  renderAll();
+})();
+
+// 試合時間帯（18〜23時）に30分ごとJSON再取得
+setInterval(async () => {
   const h = new Date().getHours();
-  if(h>=18 && h<=23) fetchAll();
-}, 30*60*1000);
+  if(h >= 18 && h <= 23) {
+    await loadStandingsJson();
+    applyMatrixFallback();
+    renderAll();
+  }
+}, 30 * 60 * 1000);
 </script>
 </body>
 </html>
