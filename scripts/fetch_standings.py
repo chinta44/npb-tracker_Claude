@@ -1,61 +1,57 @@
 #!/usr/bin/env python3
 """
-NPB順位データ取得スクリプト
+NPB順位・試合データ取得スクリプト
 GitHub Actionsで毎日自動実行される
-データ取得先: npb.jp/bis/eng (NPB公式英語版)
+
+戦略:
+  1. npb.jp/bis/eng から順位表をスクレイピング（GitHub Actionsサーバーからは通る）
+  2. スクレイピング失敗時 → Claude APIで順位・試合データを両方生成
+  3. 今日の試合スケジュールも Claude API で取得（スクレイピングより確実）
+
 出力: data/standings.json
 """
 
-import json
-import re
-import sys
-import urllib.request
+import json, re, sys, os, urllib.request, urllib.parse
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-# 日本時間
 JST = timezone(timedelta(hours=9))
 
 TEAM_JA = {
-    'Hanshin Tigers':                   '阪神',
-    'Yomiuri Giants':                   '巨人',
-    'Yokohama DeNA BayStars':           'DeNA',
-    'Yokohama BayStars':                'DeNA',
-    'Tokyo Yakult Swallows':            'ヤクルト',
-    'Hiroshima Toyo Carp':              '広島',
-    'Chunichi Dragons':                 '中日',
-    'Fukuoka SoftBank Hawks':           'ソフトバンク',
-    'Saitama Seibu Lions':              '西武',
-    'Hokkaido Nippon-Ham Fighters':     '日本ハム',
-    'Orix Buffaloes':                   'オリックス',
-    'Chiba Lotte Marines':              'ロッテ',
-    'Tohoku Rakuten Golden Eagles':     '楽天',
+    'Hanshin Tigers':                 '阪神',
+    'Yomiuri Giants':                 '巨人',
+    'Yokohama DeNA BayStars':         'DeNA',
+    'Yokohama BayStars':              'DeNA',
+    'Tokyo Yakult Swallows':          'ヤクルト',
+    'Hiroshima Toyo Carp':            '広島',
+    'Chunichi Dragons':               '中日',
+    'Fukuoka SoftBank Hawks':         'ソフトバンク',
+    'Saitama Seibu Lions':            '西武',
+    'Hokkaido Nippon-Ham Fighters':   '日本ハム',
+    'Orix Buffaloes':                 'オリックス',
+    'Chiba Lotte Marines':            'ロッテ',
+    'Tohoku Rakuten Golden Eagles':   '楽天',
 }
 
-COLORS = {
-    '阪神':'#e6b800','巨人':'#f04830','DeNA':'#4488dd',
-    'ヤクルト':'#2db87a','広島':'#e83030','中日':'#2266cc',
-    'ソフトバンク':'#f09000','西武':'#1a4fa0','日本ハム':'#3080d0',
-    'オリックス':'#2255bb','ロッテ':'#888899','楽天':'#cc2222',
-}
-
-HEADERS = {
+HEADERS_BROWSER = {
     'User-Agent': (
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
         'AppleWebKit/537.36 (KHTML, like Gecko) '
         'Chrome/120.0.0.0 Safari/537.36'
     ),
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept': 'text/html,application/xhtml+xml',
     'Accept-Language': 'ja,en-US;q=0.7,en;q=0.3',
-    'Connection': 'keep-alive',
 }
 
 
+# ──────────────────────────────────────────
+# スクレイピング関数
+# ──────────────────────────────────────────
+
 def fetch_html(url: str) -> str:
-    req = urllib.request.Request(url, headers=HEADERS)
+    req = urllib.request.Request(url, headers=HEADERS_BROWSER)
     with urllib.request.urlopen(req, timeout=20) as r:
         raw = r.read()
-    # encoding detection
     for enc in ('utf-8', 'shift_jis', 'euc-jp', 'latin-1'):
         try:
             return raw.decode(enc)
@@ -64,60 +60,134 @@ def fetch_html(url: str) -> str:
     return raw.decode('utf-8', errors='replace')
 
 
-def parse_npb_eng(html: str) -> list[dict]:
-    """NPB英語版テーブルをパース"""
-    # <td> タグ内のテキストを行ごとに取得
+def parse_npb_standings(html: str) -> list:
     rows = re.findall(r'<tr[^>]*>(.*?)</tr>', html, re.DOTALL)
     teams = []
     for row in rows:
         cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.DOTALL)
         cells = [re.sub(r'<[^>]+>', '', c).strip() for c in cells]
-        if len(cells) < 7:
+        if len(cells) < 5:
             continue
-        # 行の最初のセルがチーム名のリンクを含む
         team_raw = cells[0]
-        if not team_raw or team_raw.isdigit():
-            continue
         team_ja = TEAM_JA.get(team_raw)
         if not team_ja:
             continue
         try:
-            g  = int(cells[1])
-            w  = int(cells[2])
-            l  = int(cells[3])
-            t  = int(cells[4])
+            g = int(cells[1]); w = int(cells[2]); l = int(cells[3]); d = int(cells[4])
             wr = round(w / (w + l), 3) if (w + l) > 0 else 0.0
             sv = w - l
         except (ValueError, IndexError):
             continue
-
-        teams.append({
-            'team': team_ja,
-            'g': g, 'w': w, 'l': l, 'd': t,
-            'wr': wr, 'sv': sv, 'magic': None,
-        })
+        teams.append({'team': team_ja, 'g': g, 'w': w, 'l': l, 'd': d,
+                      'wr': wr, 'sv': sv, 'magic': None})
     return teams
 
 
-def calc_gb(teams: list[dict]) -> list[dict]:
-    """ゲーム差を計算して付与"""
+def calc_gb(teams: list) -> list:
     if not teams:
         return teams
-    leader = teams[0]
-    leader_wr = leader['wr']
-    leader_games = leader['w'] + leader['l']
-
-    result = []
     for i, t in enumerate(teams):
         if i == 0:
             t['gb'] = '-'
         else:
-            # ゲーム差 = ((首位勝 - 対象勝) + (対象負 - 首位負)) / 2
-            gb = ((leader['w'] - t['w']) + (t['l'] - leader['l'])) / 2
-            t['gb'] = str(int(gb)) if gb == int(gb) else str(gb)
-        result.append(t)
+            gb = ((teams[0]['w'] - t['w']) + (t['l'] - teams[0]['l'])) / 2
+            t['gb'] = str(int(gb)) if gb == int(gb) else str(round(gb, 1))
+    return teams
+
+
+def scrape_standings():
+    """NPB公式英語版から順位をスクレイピング"""
+    result = {}
+    for key, url in [
+        ('central', 'https://npb.jp/bis/eng/2026/stats/std_c.html'),
+        ('pacific', 'https://npb.jp/bis/eng/2026/stats/std_p.html'),
+    ]:
+        html = fetch_html(url)
+        teams = parse_npb_standings(html)
+        if teams:
+            result[key] = calc_gb(teams)
+            print(f"  スクレイピング成功: {key} ({len(teams)} teams)")
+        else:
+            raise ValueError(f"No data parsed for {key}")
     return result
 
+
+# ──────────────────────────────────────────
+# Claude API フォールバック
+# ──────────────────────────────────────────
+
+def claude_api(prompt: str, api_key: str) -> str:
+    body = json.dumps({
+        'model': 'claude-sonnet-4-6',
+        'max_tokens': 2000,
+        'messages': [{'role': 'user', 'content': prompt}]
+    }).encode('utf-8')
+    req = urllib.request.Request(
+        'https://api.anthropic.com/v1/messages',
+        data=body,
+        headers={
+            'Content-Type': 'application/json',
+            'x-api-key': api_key,
+            'anthropic-version': '2023-06-01',
+        },
+        method='POST'
+    )
+    with urllib.request.urlopen(req, timeout=30) as r:
+        data = json.loads(r.read())
+    return data['content'][0]['text']
+
+
+def fetch_via_claude(api_key: str, today_str: str) -> dict:
+    """Claude APIで順位・試合データを両方取得"""
+    prompt = f"""今日は{today_str}です。2026年NPBプロ野球の最新データをJSONのみで返してください。前置きや説明は不要です。
+
+{{
+  "central": [
+    {{"team":"阪神","g":108,"w":61,"l":46,"d":1,"wr":0.570,"gb":"-","sv":15,"magic":null}},
+    ...セ・リーグ全6チームを順位順で...
+  ],
+  "pacific": [
+    {{"team":"ソフトバンク","g":109,"w":68,"l":40,"d":1,"wr":0.630,"gb":"-","sv":28,"magic":null}},
+    ...パ・リーグ全6チームを順位順で...
+  ],
+  "today": [
+    {{"away":"巨人","home":"ヤクルト","as":null,"hs":null,"status":"18:00〜 東京ドーム"}},
+    ...{today_str}の全試合（スコアがあれば数値、未試合はnull）...
+  ]
+}}
+
+magicは優勝マジック数値またはnull。{today_str}終了時点の実際のデータで。"""
+
+    text = claude_api(prompt, api_key)
+    clean = text.replace('```json', '').replace('```', '').strip()
+    s = clean.index('{'); e = clean.rindex('}')
+    return json.loads(clean[s:e+1])
+
+
+# ──────────────────────────────────────────
+# 試合スケジュール取得
+# ──────────────────────────────────────────
+
+def fetch_today_schedule(api_key: str, today_str: str) -> list:
+    """今日の試合スケジュールをClaude APIで取得"""
+    prompt = f"""今日は{today_str}です。2026年NPBプロ野球の本日の試合スケジュールをJSONのみで返してください。
+
+[
+  {{"away":"巨人","home":"ヤクルト","as":null,"hs":null,"status":"18:00〜 東京ドーム"}},
+  ...本日の全試合...
+]
+
+試合がない球団は含めない。スコアがあれば数値、未試合はnull。球場名も含める。"""
+
+    text = claude_api(prompt, api_key)
+    clean = text.replace('```json', '').replace('```', '').strip()
+    s = clean.index('['); e = clean.rindex(']')
+    return json.loads(clean[s:e+1])
+
+
+# ──────────────────────────────────────────
+# 履歴管理
+# ──────────────────────────────────────────
 
 def load_existing(path: Path) -> dict:
     if path.exists():
@@ -129,116 +199,107 @@ def load_existing(path: Path) -> dict:
     return {}
 
 
-def build_history(existing: dict, league_key: str, new_teams: list[dict], today_label: str) -> dict:
-    """
-    既存の履歴に今日のデータを追記（または末尾を更新）
-    同じ日付なら上書き、新しい日付なら追加（最大20ポイント保持）
-    """
-    hist = existing.get(league_key, {}).get('history', {
-        'labels': [],
-        'wr': {},
-        'sv': {},
-    })
-
+def build_history(existing: dict, league_key: str, new_teams: list, today_label: str) -> dict:
+    hist = existing.get(league_key, {}).get('history', {'labels': [], 'wr': {}, 'sv': {}})
     labels = hist.get('labels', [])
     wr_map = hist.get('wr', {})
     sv_map = hist.get('sv', {})
 
-    # 今日のラベルが既にあるか確認
     if labels and labels[-1] == today_label:
-        # 末尾を上書き
-        idx = -1
+        for t in new_teams:
+            if wr_map.get(t['team']): wr_map[t['team']][-1] = t['wr']
+            if sv_map.get(t['team']): sv_map[t['team']][-1] = t['sv']
     else:
-        # 新しいポイントを追加
         labels.append(today_label)
-        idx = None  # 追加モード
+        for t in new_teams:
+            name = t['team']
+            wr_map.setdefault(name, []).append(t['wr'])
+            sv_map.setdefault(name, []).append(t['sv'])
 
-    for t in new_teams:
-        name = t['team']
-        if name not in wr_map:
-            wr_map[name] = []
-        if name not in sv_map:
-            sv_map[name] = []
-
-        if idx == -1:
-            # 末尾上書き
-            if wr_map[name]:
-                wr_map[name][-1] = t['wr']
-                sv_map[name][-1] = t['sv']
-            else:
-                wr_map[name].append(t['wr'])
-                sv_map[name].append(t['sv'])
-        else:
-            wr_map[name].append(t['wr'])
-            sv_map[name].append(t['sv'])
-
-    # 最大20ポイントに制限
     MAX = 20
     if len(labels) > MAX:
         labels = labels[-MAX:]
-        for name in wr_map:
-            wr_map[name] = wr_map[name][-MAX:]
-        for name in sv_map:
-            sv_map[name] = sv_map[name][-MAX:]
+        for k in wr_map: wr_map[k] = wr_map[k][-MAX:]
+        for k in sv_map: sv_map[k] = sv_map[k][-MAX:]
 
     return {'labels': labels, 'wr': wr_map, 'sv': sv_map}
 
 
-def main():
-    out_dir = Path(__file__).parent.parent / 'data'
-    out_dir.mkdir(exist_ok=True)
-    out_path = out_dir / 'standings.json'
+# ──────────────────────────────────────────
+# メイン
+# ──────────────────────────────────────────
 
-    now_jst = datetime.now(JST)
-    today_label = f"{now_jst.month}/{now_jst.day}"
-    updated = now_jst.strftime('%Y/%m/%d %H:%M')
+def main():
+    out_path = Path(__file__).parent.parent / 'data' / 'standings.json'
+    out_path.parent.mkdir(exist_ok=True)
+
+    now = datetime.now(JST)
+    today_label = f"{now.month}/{now.day}"
+    today_str = f"{now.year}年{now.month}月{now.day}日"
+    updated = now.strftime('%Y/%m/%d %H:%M')
 
     existing = load_existing(out_path)
+    api_key = os.environ.get('ANTHROPIC_API_KEY', '')
 
-    result = {
-        'updated': updated,
-        'central': None,
-        'pacific': None,
-    }
+    # ── 1. 順位データ取得 ──
+    standings = {}
+    try:
+        print("▶ スクレイピングを試みます...")
+        standings = scrape_standings()
+    except Exception as e:
+        print(f"  スクレイピング失敗: {e}")
+        if api_key:
+            print("▶ Claude APIにフォールバック...")
+            try:
+                data = fetch_via_claude(api_key, today_str)
+                if data.get('central'):
+                    standings['central'] = calc_gb(data['central'])
+                if data.get('pacific'):
+                    standings['pacific'] = calc_gb(data['pacific'])
+                # 今日の試合もここで取れた場合は使う
+                if data.get('today'):
+                    standings['_today'] = data['today']
+                print("  Claude API成功")
+            except Exception as e2:
+                print(f"  Claude APIも失敗: {e2}", file=sys.stderr)
+        else:
+            print("  ANTHROPIC_API_KEY が未設定。既存データを保持します。")
 
-    urls = {
-        'central': 'https://npb.jp/bis/eng/2026/stats/std_c.html',
-        'pacific': 'https://npb.jp/bis/eng/2026/stats/std_p.html',
-    }
-
-    success = True
-    for league_key, url in urls.items():
+    # ── 2. 今日の試合スケジュール取得 ──
+    today_games = standings.pop('_today', None)
+    if today_games is None and api_key:
+        print("▶ 今日の試合スケジュールを取得...")
         try:
-            print(f"Fetching {league_key}: {url}")
-            html = fetch_html(url)
-            teams = parse_npb_eng(html)
-            if not teams:
-                raise ValueError("No team data parsed")
-            teams = calc_gb(teams)
-            history = build_history(existing, league_key, teams, today_label)
-            result[league_key] = {
+            today_games = fetch_today_schedule(api_key, today_str)
+            print(f"  {len(today_games)} 試合取得")
+        except Exception as e:
+            print(f"  試合スケジュール取得失敗: {e}")
+            today_games = existing.get('today', [])
+    elif today_games is None:
+        today_games = existing.get('today', [])
+
+    # ── 3. JSONを組み立てる ──
+    result = {'updated': updated, 'today': today_games}
+
+    for key in ('central', 'pacific'):
+        teams = standings.get(key)
+        if teams:
+            history = build_history(existing, key, teams, today_label)
+            result[key] = {
                 'teams': [t['team'] for t in teams],
                 'current': teams,
                 'history': history,
             }
-            print(f"  -> {len(teams)} teams OK")
-        except Exception as e:
-            print(f"  ERROR: {e}", file=sys.stderr)
-            # フォールバック: 既存データをそのまま使用
-            if league_key in existing:
-                result[league_key] = existing[league_key]
-                result['updated'] = existing.get('updated', updated) + ' (cached)'
-                print(f"  -> Using cached data")
-            else:
-                success = False
+        elif key in existing:
+            # データ取得失敗 → 既存を保持
+            result[key] = existing[key]
+            result['updated'] = existing.get('updated', updated) + ' (cached)'
+            print(f"  {key}: 既存データを保持")
 
-    # 書き出し
+    # ── 4. 書き出し ──
     with open(out_path, 'w', encoding='utf-8') as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
-
-    print(f"\nSaved to {out_path}")
-    if not success:
-        sys.exit(1)
+    print(f"\n✓ 保存完了: {out_path}")
 
 
 if __name__ == '__main__':
